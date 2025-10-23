@@ -1,0 +1,246 @@
+---
+title: "fred-analysis"
+author: "AL"
+date: "2025-10-23"
+output: html_document
+---
+
+```{r}
+FRED_API <- "4ff94616949b02a01853e8effd6b5999"
+```
+
+
+```{r}
+# Load libraries
+library(fredr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(vars)
+library(forecast)
+library(tseries)
+
+# Set your FRED API key (get free key from https://research.stlouisfed.org/useraccount/)
+library(fredr)
+fredr_set_key(FRED_API)
+```
+
+
+```{r}
+sp500_data <- read.csv("../../data/closes_clean.csv", stringsAsFactors = FALSE)
+```
+
+
+```{r}
+library(fredr)
+fredr_set_key(FRED_API)
+vix_data <- fredr(
+  series_id = "VIXCLS",  # VIX Index
+  observation_start = as.Date("2002-12-18")
+)
+
+```
+
+
+```{r}
+# Load required libraries
+library(fredr)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(vars)
+library(ggplot2)
+
+# Set your FRED API key
+fredr_set_key(FRED_API)
+
+# First, let's check the structure of the downloaded data
+fed_balance_sheet <- fredr(
+  series_id = "WSHOSHO",
+  observation_start = as.Date("2002-12-18")
+)
+
+vix_data <- fredr(
+  series_id = "VIXCLS",
+  observation_start = as.Date("2002-12-18")
+)
+
+# Check the structure
+cat("Fed balance sheet structure:\n")
+str(fed_balance_sheet)
+head(fed_balance_sheet)
+
+cat("\nVIX data structure:\n")
+str(vix_data)
+head(vix_data)
+```
+
+```{r}
+# Merge datasets using explicit dplyr select
+complete_data <- fed_balance_sheet %>%
+  dplyr::select(date, value) %>%
+  rename(WSHOSHO = value) %>%
+  left_join(
+    vix_data %>% dplyr::select(date, value) %>% rename(VIX = value),
+    by = "date"
+  ) %>%
+  arrange(date)
+
+# Check the merged data
+cat("Merged data structure:\n")
+str(complete_data)
+head(complete_data)
+```
+
+```{r}
+# Prepare data for linear regression using base R and dplyr carefully
+prepare_lm_data <- function(data) {
+  # Convert to data frame if it isn't already
+  df <- as.data.frame(data)
+  
+  # Create quarterly aggregates
+  df$quarter <- floor_date(df$date, "quarter")
+  
+  # Calculate daily changes first
+  df$Fed_Securities_Change <- c(NA, diff(df$WSHOSHO))
+  
+  # Create lagged VIX
+  df$VIX_Lag1 <- c(NA, df$VIX[-nrow(df)])
+  df$VIX_Lag2 <- c(NA, NA, df$VIX[-c(nrow(df)-1, nrow(df))])
+  
+  # Aggregate to quarterly frequency
+  quarterly_data <- data.frame(
+    quarter = unique(df$quarter)
+  )
+  
+  # For each quarter, take the last available values
+  for(q in quarterly_data$quarter) {
+    quarter_subset <- df[df$quarter == q, ]
+    if(nrow(quarter_subset) > 0) {
+      quarterly_data$Delta_Fed_Securities[quarterly_data$quarter == q] <- 
+        sum(quarter_subset$Fed_Securities_Change, na.rm = TRUE)
+      quarterly_data$VIX_EoQ[quarterly_data$quarter == q] <- 
+        tail(quarter_subset$VIX, 1)
+      quarterly_data$VIX_Lag1[quarterly_data$quarter == q] <- 
+        tail(quarter_subset$VIX_Lag1, 1)
+      quarterly_data$VIX_Lag2[quarterly_data$quarter == q] <- 
+        tail(quarter_subset$VIX_Lag2, 1)
+    }
+  }
+  
+  # Remove NA rows and create lags
+  quarterly_data <- na.omit(quarterly_data)
+  quarterly_data$Delta_Fed_Securities_Lag1 <- 
+    c(NA, quarterly_data$Delta_Fed_Securities[-nrow(quarterly_data)])
+  
+  # Create regime dummies
+  quarterly_data$QE_QT_Regime <- ifelse(
+    quarterly_data$Delta_Fed_Securities > 50, "QE",
+    ifelse(quarterly_data$Delta_Fed_Securities < -50, "QT", "Neutral")
+  )
+  
+  quarterly_data$QE_Dummy <- as.numeric(quarterly_data$QE_QT_Regime == "QE")
+  quarterly_data$QT_Dummy <- as.numeric(quarterly_data$QE_QT_Regime == "QT")
+  
+  return(na.omit(quarterly_data))
+}
+
+# Prepare the data
+lm_data <- prepare_lm_data(complete_data)
+
+# Check the prepared data
+cat("Prepared linear regression data:\n")
+str(lm_data)
+head(lm_data)
+```
+
+
+
+```{r}
+# Model 1: Basic Linear Regression
+lm_model_basic <- lm(Delta_Fed_Securities ~ 
+                      VIX_Lag1 + 
+                      VIX_Lag2 +
+                      Delta_Fed_Securities_Lag1,
+                    data = lm_data)
+
+cat("=== BASIC LINEAR REGRESSION MODEL ===\n")
+print(summary(lm_model_basic))
+
+# Model 2: Enhanced model with regime dummies
+lm_model_enhanced <- lm(Delta_Fed_Securities ~ 
+                         VIX_Lag1 +
+                         VIX_Lag2 +
+                         Delta_Fed_Securities_Lag1 +
+                         QE_Dummy +
+                         QT_Dummy,
+                       data = lm_data)
+
+cat("\n=== ENHANCED LINEAR REGRESSION MODEL ===\n")
+print(summary(lm_model_enhanced))
+```
+
+
+
+
+# Federal Reserve QE/QT Econometric Model - Initial Results Analysis
+
+## Model Performance Summary
+
+**The model shows promising explanatory power but requires refinement in variable specification:**
+
+### Strengths:
+- **Good Model Fit**: R-squared = 0.50 in enhanced model (explains 50% of variance in Fed balance sheet changes)
+- **Statistical Significance**: Key variables (VIX_Lag1, persistence, QE regime) are statistically significant  
+- **Economic Intuition**: Model captures Fed policy persistence and regime-dependent behavior
+
+### Critical Issues Identified:
+
+#### 1. Scale Problems
+- **Massive Residuals**: Range of ±$1.2 trillion indicates poor prediction accuracy
+- **Extreme Coefficients**: Intercept of -$70 billion lacks economic meaning
+- **Solution**: Use percentage changes or log differences instead of absolute dollar amounts
+
+#### 2. Multicollinearity
+- **QT_Dummy Dropped**: Perfect correlation with QE_Dummy (mutually exclusive categories)
+- **Solution**: Use single regime variable or interaction terms
+
+#### 3. Counterintuitive VIX Relationship
+- **Unexpected Sign**: VIX increase predicts balance sheet expansion (should be context-dependent)
+- **Possible Explanation**: VIX may be proxying for crisis periods when Fed expands aggressively
+- **Solution**: Add interaction terms (VIX × Regime)
+
+## Key Economic Insights (Despite Limitations)
+
+### Strong Policy Persistence
+- **54.5% carry-over effect** from previous quarter's balance sheet changes
+- Fed policies have significant momentum once initiated
+
+### Regime Dependency Matters  
+- **QE periods** show $142.9B additional expansion beyond normal patterns
+- Confirms our economic intuition about distinct policy regimes
+
+### Market Volatility Response
+- **VIX significantly influences** Fed balance sheet decisions
+- Though the direction needs further investigation with better model specification
+
+## Recommended Next Steps
+
+1. **Variable Transformation**
+   - Convert to percentage growth rates or log differences
+   - Winsorize extreme values
+
+2. **Model Enhancement**
+   - Add macroeconomic controls (unemployment, inflation, GDP growth)
+   - Include interaction terms between VIX and policy regimes
+   - Use robust standard errors to address heteroscedasticity
+
+3. **Economic Interpretation**
+   - The positive VIX coefficient may reflect crisis response rather than normal policy
+   - Strong persistence suggests Fed avoids abrupt policy reversals
+   - Regime dummies capture structural breaks in Fed behavior
+
+## Conclusion
+
+While the current model has specification issues, it provides a foundation for understanding Fed balance sheet dynamics. The significant coefficients and reasonable R-squared suggest we're capturing important drivers of QE/QT decisions, but proper variable transformation is essential for reliable inference and forecasting.
+

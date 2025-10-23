@@ -1,0 +1,58 @@
+
+
+
+
+```{r}
+# Create simple returns and log returns from closes_clean
+simple_returns <- closes_clean %>%
+  arrange(date) %>%
+  mutate(across(-date, ~ (./lag(.) - 1))) %>%
+  filter(!is.na(.[[2]]))  # Remove first row with NAs
+
+log_returns <- closes_clean %>%
+  arrange(date) %>%
+  mutate(across(-date, ~ log(./lag(.)))) %>%
+  filter(!is.na(.[[2]]))  # Remove first row with NAs
+
+
+```
+
+
+
+```{r}
+# Calculate cumulative log returns for each stock
+cumulative_log_returns <- log_returns %>%
+  arrange(date) %>%
+  mutate(across(-date, ~ cumsum(.)))
+
+# Create a more visually appealing plot
+cumulative_log_returns %>%
+  pivot_longer(-date, names_to = "stock", values_to = "cumulative_return") %>%
+  ggplot(aes(x = date, y = cumulative_return, group = stock)) +
+  geom_line(size = 0.05, alpha = 0.8, aes(color = stock)) +
+  scale_color_viridis_d(option = "plasma") +  # Viridis color palette
+  labs(
+    title = "Cumulative Log Returns Over Time",
+    subtitle = "Individual stock performance trajectories",
+    x = "Date",
+    y = "Cumulative Log Return",
+    color = "Stocks"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",  # Remove legend since you don't care about labels
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray50"),
+    panel.grid.major = element_line(color = "gray90", linewidth = 0.2),
+    panel.grid.minor = element_blank(),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+
+
+
+
+
+
+
