@@ -1,0 +1,111 @@
+
+
+
+
+```{r}
+library(tidyverse) # Package for data manipulation
+library(tidyquant) # Package for data extraction
+library(lubridate) # Package for date management
+library(timetk) # Package to convert easily between tidy format and xts
+
+# Read tickers from CSV file
+tickers_df <- read_csv("../../data/sp500_tickers.csv") # Replace with your actual filename
+tickers <- tickers_df$Ticker
+
+min_date <- "2000-01-01" # Starting date
+max_date <- "2025-05-02" # Ending date
+
+prices <- tickers %>%
+  tq_get(
+    get = "stock.prices", # The data comes from Yahoo Finance
+    from = min_date, # Start date
+    to = max_date
+  )
+
+head(prices, 5)
+```
+
+
+```{r}
+#og_prices <- prices # started from 2000 to try
+
+# Keep only the necessary columns and pivot to wide format
+closes_wide <- prices %>%
+  select(symbol, date, close) %>%
+  pivot_wider(
+    names_from = symbol,    # Column names become the ticker symbols
+    values_from = close     # Values come from the close column
+  )
+
+# View the result
+head(closes_wide, 5)
+```
+
+```{r}
+# Remove columns that contain any NA values
+closes_clean <- closes_wide %>%
+  select(where(~ all(!is.na(.))))
+
+# View the result
+head(closes_clean, 5)
+```
+
+```{r}
+# Save to CSV
+write_csv(closes_clean, "../../data/closes_clean.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

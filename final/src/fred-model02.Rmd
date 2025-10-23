@@ -1,0 +1,273 @@
+---
+title: "fred-analysis"
+author: "AL"
+date: "2025-10-23"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+FRED_API <- "4ff94616949b02a01853e8effd6b5999"
+```
+
+
+```{r}
+# Load libraries
+library(fredr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(vars)
+library(forecast)
+library(tseries)
+
+# Set your FRED API key (get free key from https://research.stlouisfed.org/useraccount/)
+library(fredr)
+fredr_set_key(FRED_API)
+```
+
+
+```{r}
+sp500_data <- read.csv("../../data/closes_clean.csv", stringsAsFactors = FALSE)
+```
+
+
+
+```{r}
+
+#rm(list = ls())
+
+# Load required libraries
+library(fredr)
+library(dplyr)
+library(lubridate)
+library(caret)
+library(randomForest)
+library(pROC)
+library(ggplot2)
+
+# Set FRED API key
+fredr_set_key(FRED_API)
+
+# Load fresh data from FRED
+fed_balance_sheet <- fredr(
+  series_id = "WSHOSHO",
+  observation_start = as.Date("2002-12-18")
+)
+
+vix_data <- fredr(
+  series_id = "VIXCLS", 
+  observation_start = as.Date("2002-12-18")
+)
+
+# Merge datasets using base R to avoid conflicts
+complete_data <- data.frame(
+  date = fed_balance_sheet$date,
+  WSHOSHO = fed_balance_sheet$value,
+  VIX = vix_data$value[match(fed_balance_sheet$date, vix_data$date)]
+)
+
+# Remove NAs and sort
+complete_data <- na.omit(complete_data)
+complete_data <- complete_data[order(complete_data$date), ]
+
+# Create QE prediction dataset
+prepare_qe_prediction_data <- function(data) {
+  data$quarter <- floor_date(data$date, "quarter")
+  
+  # Aggregate to quarterly frequency
+  quarterly_data <- data %>%
+    group_by(quarter) %>%
+    summarize(
+      Fed_Securities = last(WSHOSHO),
+      VIX = last(VIX),
+      .groups = 'drop'
+    ) %>%
+    arrange(quarter) %>%
+    mutate(
+      # Target: Will Fed be in QE NEXT quarter? (100B threshold)
+      QE_Next_Quarter = as.factor(ifelse(lead(Fed_Securities) - Fed_Securities > 100, 1, 0)),
+      
+      # Features
+      Fed_Growth = (Fed_Securities / lag(Fed_Securities) - 1) * 100,
+      VIX_Change = (VIX / lag(VIX) - 1) * 100,
+      VIX_Level = VIX,
+      Fed_Growth_Lag1 = lag(Fed_Growth),
+      VIX_Change_Lag1 = lag(VIX_Change),
+      VIX_High = as.factor(ifelse(VIX > 30, 1, 0))
+    ) %>%
+    na.omit()
+  
+  return(quarterly_data)
+}
+
+# Prepare the data
+prediction_data <- prepare_qe_prediction_data(complete_data)
+
+# Check the data
+cat("QE Prediction Dataset:\n")
+print(head(prediction_data))
+cat("\nTarget variable distribution:\n")
+print(table(prediction_data$QE_Next_Quarter))
+```
+
+
+
+
+```{r}
+# Split data into training and testing
+set.seed(123)
+train_index <- createDataPartition(prediction_data$QE_Next_Quarter, p = 0.7, list = FALSE)
+train_data <- prediction_data[train_index, ]
+test_data <- prediction_data[-train_index, ]
+
+# Define features (remove target, date, and raw levels)
+features <- c("Fed_Growth", "VIX_Change", "VIX_Level", "Fed_Growth_Lag1", "VIX_Change_Lag1", "VIX_High")
+
+# Train Random Forest model
+cat("Training Random Forest for QE Prediction...\n")
+rf_model <- randomForest(
+  x = train_data[, features],
+  y = train_data$QE_Next_Quarter,
+  ntree = 500,
+  importance = TRUE
+)
+
+# Model summary
+cat("\n=== RANDOM FOREST MODEL ===\n")
+print(rf_model)
+
+# Variable importance
+cat("\n=== VARIABLE IMPORTANCE ===\n")
+importance_df <- as.data.frame(importance(rf_model))
+importance_df$Variable <- rownames(importance_df)
+importance_df <- importance_df[order(-importance_df$MeanDecreaseGini), ]
+print(importance_df)
+
+# Make predictions
+test_predictions <- predict(rf_model, test_data[, features])
+test_probabilities <- predict(rf_model, test_data[, features], type = "prob")[, "1"]
+
+# Model performance
+confusion_matrix <- confusionMatrix(test_predictions, test_data$QE_Next_Quarter)
+cat("\n=== CONFUSION MATRIX ===\n")
+print(confusion_matrix)
+
+# ROC Curve and AUC
+roc_result <- roc(test_data$QE_Next_Quarter, test_probabilities)
+cat("\n=== MODEL PERFORMANCE ===\n")
+cat("AUC:", auc(roc_result), "\n")
+cat("Accuracy:", confusion_matrix$overall["Accuracy"], "\n")
+cat("Sensitivity:", confusion_matrix$byClass["Sensitivity"], "\n")
+cat("Specificity:", confusion_matrix$byClass["Specificity"], "\n")
+
+# Plot ROC curve
+plot(roc_result, main = "ROC Curve - QE Prediction Model")
+```
+
+
+
+
+
+
+
+```{r}
+# Logistic Regression model
+cat("\n=== LOGISTIC REGRESSION MODEL ===\n")
+logit_model <- glm(QE_Next_Quarter ~ 
+                    Fed_Growth + 
+                    VIX_Level + 
+                    VIX_Change + 
+                    Fed_Growth_Lag1 +
+                    VIX_High,
+                  data = train_data, 
+                  family = binomial)
+
+summary(logit_model)
+
+# Logistic regression predictions
+logit_probs <- predict(logit_model, test_data, type = "response")
+logit_preds <- as.factor(ifelse(logit_probs > 0.5, 1, 0))
+
+# Logistic regression performance
+logit_cm <- confusionMatrix(logit_preds, test_data$QE_Next_Quarter)
+cat("\nLogistic Regression Accuracy:", logit_cm$overall["Accuracy"], "\n")
+
+# Compare models
+cat("\n=== MODEL COMPARISON ===\n")
+cat("Random Forest Accuracy:", confusion_matrix$overall["Accuracy"], "\n")
+cat("Logistic Regression Accuracy:", logit_cm$overall["Accuracy"], "\n")
+```
+
+
+
+
+```{r}
+# Economic interpretation
+cat("\n=== ECONOMIC INTERPRETATION ===\n")
+cat("Key drivers of QE decisions:\n")
+
+# Extract coefficients from logistic model
+logit_coef <- summary(logit_model)$coefficients
+for(i in 2:nrow(logit_coef)) {
+  var <- rownames(logit_coef)[i]
+  coef <- logit_coef[i, 1]
+  pval <- logit_coef[i, 4]
+  
+  direction <- ifelse(coef > 0, "INCREASES", "DECREASES")
+  significance <- ifelse(pval < 0.05, "**", ifelse(pval < 0.1, "*", ""))
+  
+  cat(sprintf("%s: %s probability of QE (p=%.3f)%s\n", 
+              var, direction, pval, significance))
+}
+
+# Plot feature importance
+varImpPlot(rf_model, main = "Random Forest - Variable Importance for QE Prediction")
+```
+
+
+
+
+
+
+```{r}
+# Create prediction dataset for strategy with explicit dplyr select
+strategy_data <- prediction_data %>%
+  mutate(
+    RF_Probability = predict(rf_model, prediction_data[, features], type = "prob")[, "1"],
+    RF_Prediction = predict(rf_model, prediction_data[, features]),
+    Actual_QE = QE_Next_Quarter
+  ) %>%
+  dplyr::select(quarter, RF_Probability, RF_Prediction, Actual_QE)
+
+# Strategy performance
+cat("\n=== TRADING STRATEGY INSIGHTS ===\n")
+cat("Model confidence for QE periods:\n")
+print(summary(strategy_data$RF_Probability[strategy_data$Actual_QE == 1]))
+
+cat("\nModel confidence for non-QE periods:\n")
+print(summary(strategy_data$RF_Probability[strategy_data$Actual_QE == 0]))
+
+# Plot probabilities over time
+ggplot(strategy_data, aes(x = quarter, y = RF_Probability, color = Actual_QE)) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  labs(title = "QE Prediction Probabilities Over Time",
+       subtitle = "Random Forest Model - Probability of QE in Next Quarter",
+       x = "Date", y = "Probability of QE",
+       color = "Actual QE Next Quarter") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
