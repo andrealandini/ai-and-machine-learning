@@ -1,0 +1,49 @@
+❯ python qe_expanded_daily_to_quarterly.py
+Saved daily merged to: ../../data/expanded_daily_all.csv
+Saved quarterly features to: ../../data/expanded_quarterly_features_py.csv
+Saved dataset parquet to: ../../data/expanded_qe_dataset_daily_to_quarterly_py.parquet
+
+Random Forest
+Accuracy: 0.8929
+AUC: 0.9306
+Confusion matrix:
+ [[18  0]
+ [ 3  7]]
+Report:
+               precision    recall  f1-score   support
+
+           0     0.8571    1.0000    0.9231        18
+           1     1.0000    0.7000    0.8235        10
+
+    accuracy                         0.8929        28
+   macro avg     0.9286    0.8500    0.8733        28
+weighted avg     0.9082    0.8929    0.8875        28
+
+
+XGBoost
+Accuracy: 0.7143
+AUC: 0.8667
+Confusion matrix:
+ [[18  0]
+ [ 8  2]]
+Report:
+               precision    recall  f1-score   support
+
+           0     0.6923    1.0000    0.8182        18
+           1     1.0000    0.2000    0.3333        10
+
+    accuracy                         0.7143        28
+   macro avg     0.8462    0.6000    0.5758        28
+weighted avg     0.8022    0.7143    0.6450        28
+
+
+Model comparison:
+        Model  Accuracy      AUC
+Random Forest  0.892857 0.930556
+      XGBoost  0.714286 0.866667
+Saved comparison to: ../../data/model_comparison_py.csv
+Saved RF importance to: ../../data/rf_feature_importance_py.csv
+Saved XGB importance to: ../../data/xgb_feature_importance_py.csv
+Saved ROC plot to: ../../data/roc_expanded_model_py.png
+
+Done.
