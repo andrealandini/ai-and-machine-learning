@@ -68,31 +68,31 @@ The expanded approach builds a richer dataset from daily macro-financial data an
 2. **Feature Engineering**  
    - Compute within-quarter growth, realized volatility, rate slopes, and binary stress indicators.  
    - Aggregate to quarterly level:  
-     \[
+     $$
      X_t = [\text{Fed\_Growth}_t, \text{M2\_Growth}_t, \text{VIX\_realized\_vol}_t, \text{Rate\_Slope}_t, \ldots]
-     \]
+     $$
 
 3. **Target Variable (QE Decision)**  
-   \[
+   $$
    QE_{t+1} =
    \begin{cases}
    1 & \text{if } \text{Fed\_Securities}_{t+1} - \text{Fed\_Securities}_t > 100 \\
    0 & \text{otherwise}
    \end{cases}
-   \]
+   $$
    Predicts whether the Fed increases securities holdings by more than \$100B next quarter.
 
 4. **Models Implemented**
    - **Random Forest (RF):**  
-     \[
+     $$
      f_{\text{RF}}(X_t) = \frac{1}{B}\sum_{b=1}^{B} T_b(X_t)
-     \]
+     $$
      Ensemble of 500 trees with class balancing and feature subsampling.
 
    - **XGBoost (XGB):**  
-     \[
+     $$
      \mathcal{L} = \sum_i l(y_i, \hat{y}_i) + \sum_k \big(\gamma T_k + \tfrac{1}{2}\lambda \|w_k\|^2\big)
-     \]
+     $$
      Gradient-boosted trees with regularization and sequential error correction.
 
 5. **Validation**  
@@ -118,7 +118,7 @@ The expanded approach builds a richer dataset from daily macro-financial data an
 - Add higher-frequency stress indices (MOVE, FCI).
 - Implement **rolling backtests** and **model stability checks**.
 - Explore **interpretable ML** (e.g., SHAP values) for economic insights.
-- Extend horizon: predict \( QE_{t+h} \) for \( h=2,3 \) quarters ahead.
+- Extend horizon: predict $QE_{t+h}$ for $h=2,3$ quarters ahead.
 
 ---
 
@@ -131,19 +131,6 @@ If referencing this work, please cite:
 
 ---
 
-## 💻 Environment Setup
-
-```bash
-# Create and activate environment
-conda create -n qe_ml python=3.11
-conda activate qe_ml
-
-# Install dependencies
-pip install pandas numpy matplotlib scikit-learn xgboost fredapi pyarrow
-
-# Run the main pipeline
-python qe_expanded_daily_to_quarterly.py
-````
 
 Outputs (CSV + PNG) will be stored automatically in `data/`.
 
@@ -160,4 +147,3 @@ For questions or collaboration:
 
 **Universität Liechtenstein**
 *Master in Finance – Artificial Intelligence and Machine Learning (Winter 2025/26)*
-
